@@ -1,0 +1,17 @@
+======================================================================
+SILENT-SPEECH EMG PHONEME DECODER  —  CROSS-SPEAKER FINDINGS
+Corpus: CSL-EMG_Array (8 speakers, 40-ch facial EMG @ 2048 Hz)
+Task: ARPAbet phoneme CTC.  Metric: Phoneme Error Rate (lower=better)
+======================================================================
+
+STATUS (partial-safe snapshot)
+  sanity folds:          0
+  LOSO baseline folds:   0/8
+  LOSO supcon folds:     0/8
+  transfer folds:        0
+
+HONEST BOUNDARY
+  Absolute PER is not the product number; CPU-only caps utts/epochs per
+  fold.  The signal to read is the CROSS-SPEAKER DELTA (baseline vs SupCon)
+  and the audible->silent gap.  Real facial speech EMG, real phonemes.
+
