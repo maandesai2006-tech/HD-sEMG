@@ -1,0 +1,8 @@
+data/raw/
+data/processed/
+*.pt
+.download.log
+.torch_install.log
+.g2p_install.log
+__pycache__/
+*.pyc
