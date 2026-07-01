@@ -6,3 +6,5 @@ data/processed/
 .g2p_install.log
 __pycache__/
 *.pyc
+.preprocess.log
+*.log
