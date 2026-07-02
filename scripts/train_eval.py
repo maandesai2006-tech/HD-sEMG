@@ -30,7 +30,8 @@ os.makedirs(RES, exist_ok=True)
 DEV = torch.device("cpu")
 BATCH = 16
 CLIP = 5.0
-TRAIN_CAP = 900      # cap training utts/fold: CPU tractability + fast per-fold banking
+TRAIN_CAP = 500      # cap training utts/fold (CPU); enough for a cross-speaker signal
+SUBSAMPLE = 2        # frame subsample factor: ~2x faster LSTM, easier CTC alignment
 EVAL_BLOCKS = ("Block3-Eval1", "Block5-Eval2", "Block7-Eval3")
 
 
@@ -41,9 +42,17 @@ def load():
                 block=d["block"], phones=d["phones"])
 
 
+def _sub(x, L):
+    # frame subsample by SUBSAMPLE (speeds LSTM + eases CTC), but never below
+    # target length L (CTC requires T >= L).
+    if SUBSAMPLE > 1 and x.shape[0] // SUBSAMPLE >= L:
+        return x[::SUBSAMPLE]
+    return x
+
+
 def collate(idx, X, Y):
-    xs = [torch.from_numpy(X[i]).float() for i in idx]
     ys = [torch.from_numpy(Y[i]).long() for i in idx]
+    xs = [torch.from_numpy(_sub(X[i], len(Y[i]))).float() for i in idx]
     ilen = torch.tensor([x.shape[0] for x in xs], dtype=torch.long)
     tlen = torch.tensor([y.shape[0] for y in ys], dtype=torch.long)
     xp = nn.utils.rnn.pad_sequence(xs, batch_first=True)         # (B,T,F)
@@ -188,6 +197,8 @@ def done_folds(name, keycols=2):
 
 
 def run_sanity(D):
+    if done_folds("sanity_within_speaker.csv", 1):
+        print("[sanity] already done"); return
     spk = "Spk1"
     aud = (D["mode"] == "aud")
     sel = np.where((D["spk"] == spk) & aud)[0]
@@ -195,7 +206,7 @@ def run_sanity(D):
     tr = sel[~is_eval]; te = sel[is_eval]
     print(f"[sanity] {spk} aud: train {len(tr)} test {len(te)}")
     t0 = time.time()
-    m = train("baseline", tr[:TRAIN_CAP], D["X"], D["Y"], epochs=18,
+    m = train("baseline", tr[:TRAIN_CAP], D["X"], D["Y"], epochs=60,
               log=lambda s: print("[sanity]" + s))
     tr_per, _ = evaluate(m, "baseline", list(tr[:300]), D["X"], D["Y"])
     te_per, n = evaluate(m, "baseline", list(te), D["X"], D["Y"])
@@ -205,7 +216,7 @@ def run_sanity(D):
                ["speaker", "train_per", "val_per", "n_val"])
 
 
-def run_loso(D, method, epochs=12):
+def run_loso(D, method, epochs=45):
     speakers = sorted(set(D["spk"][D["mode"] == "aud"]))
     name = f"loso_{method}.csv"
     done = done_folds(name, 1)

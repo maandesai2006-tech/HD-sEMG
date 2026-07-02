@@ -23,6 +23,10 @@ BLANK = 0
 class _Backbone(nn.Module):
     def __init__(self, in_feat=N_FEAT, hidden=256):
         super().__init__()
+        # standardize heterogeneous input features per-channel (raw/RMS/MAV/ZCR
+        # live on very different scales; without this the largest-scale block
+        # dominates gradients and CTC collapses to all-blank).
+        self.in_norm = nn.BatchNorm1d(in_feat)
         self.conv = nn.Sequential(
             nn.Conv1d(in_feat, 128, 3, padding=1), nn.BatchNorm1d(128), nn.ReLU(),
             nn.Conv1d(128, 128, 3, padding=1), nn.BatchNorm1d(128), nn.ReLU(),
@@ -32,7 +36,8 @@ class _Backbone(nn.Module):
         self.out_dim = hidden * 2
 
     def forward(self, x):            # x: (B, T, F)
-        h = self.conv(x.transpose(1, 2)).transpose(1, 2)   # (B, T, 128)
+        xt = self.in_norm(x.transpose(1, 2))               # (B, F, T) per-chan norm
+        h = self.conv(xt).transpose(1, 2)                  # (B, T, 128)
         h, _ = self.lstm(h)                                # (B, T, 512)
         return h
 
