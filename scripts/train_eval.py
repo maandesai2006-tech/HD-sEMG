@@ -30,8 +30,8 @@ os.makedirs(RES, exist_ok=True)
 DEV = torch.device("cpu")
 BATCH = 16
 CLIP = 5.0
-TRAIN_CAP = 350      # cap training utts/fold: sized so a fold finishes in one
-                     # active window (container pauses when the session idles)
+TRAIN_CAP = 500      # cap training utts/fold; enough for a real cross-speaker signal
+CKPT_EVERY = 5       # save mid-fold training state every N epochs (survives pauses)
 SUBSAMPLE = 2        # frame subsample factor: ~2x faster LSTM, easier CTC alignment
 EVAL_BLOCKS = ("Block3-Eval1", "Block5-Eval2", "Block7-Eval3")
 
@@ -113,12 +113,21 @@ def frame_labels(logp, yp, ilen, tlen):
     return labs
 
 
-def train(method, tr_idx, X, Y, epochs, lam=0.5, log=print):
+def train(method, tr_idx, X, Y, epochs, lam=0.5, log=print, ckpt=None):
     model = (SubvocalCTCV2() if method == "supcon" else SubvocalCTC()).to(DEV)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     ctc = nn.CTCLoss(blank=BLANK, zero_infinity=True)
+    start_ep = 0
+    if ckpt and os.path.exists(ckpt):
+        try:
+            st = torch.load(ckpt)
+            model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
+            start_ep = st["epoch"] + 1
+            log(f"    resumed mid-fold from epoch {start_ep}")
+        except Exception as e:                       # corrupt/partial ckpt -> fresh
+            log(f"    ckpt load failed ({e}); starting fold fresh")
     tr_idx = list(tr_idx)
-    for ep in range(epochs):
+    for ep in range(start_ep, epochs):
         model.train(); random.shuffle(tr_idx)
         tot = 0.0; nb = 0
         for s in range(0, len(tr_idx), BATCH):
@@ -155,6 +164,11 @@ def train(method, tr_idx, X, Y, epochs, lam=0.5, log=print):
             nn.utils.clip_grad_norm_(model.parameters(), CLIP)
             opt.step()
             tot += float(loss); nb += 1
+        if ckpt and (ep % CKPT_EVERY == 0 or ep == epochs - 1):
+            tmp = ckpt + ".tmp"
+            torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
+                        "epoch": ep, "method": method}, tmp)
+            os.replace(tmp, ckpt)                     # atomic: never leaves partial ckpt
         if ep % 5 == 0 or ep == epochs - 1:
             log(f"    ep{ep:02d} loss {tot/max(nb,1):.3f}")
     return model
@@ -217,7 +231,7 @@ def run_sanity(D):
                ["speaker", "train_per", "val_per", "n_val"])
 
 
-def run_loso(D, method, epochs=35):
+def run_loso(D, method, epochs=45):
     speakers = sorted(set(D["spk"][D["mode"] == "aud"]))
     name = f"loso_{method}.csv"
     done = done_folds(name, 1)
@@ -231,16 +245,19 @@ def run_loso(D, method, epochs=35):
         random.Random(1).shuffle(list(tr))
         tr = tr[:TRAIN_CAP]
         print(f"[loso:{method}] held={held} train {len(tr)} test {len(te)}")
+        ckpt = os.path.join(RES, f"ckpt_{method}_hold_{held}.pt")
         t0 = time.time()
-        m = train(method, tr, D["X"], D["Y"], epochs=epochs,
+        m = train(method, tr, D["X"], D["Y"], epochs=epochs, ckpt=ckpt,
                   log=lambda s: print(f"[loso:{method}:{held}]" + s))
         p, n = evaluate(m, method, list(te), D["X"], D["Y"])
         dt = time.time() - t0
         print(f"[loso:{method}] {held} cross-speaker PER {p:.3f} ({dt:.0f}s)")
         append_csv(name, [held, round(p, 4), n, method, round(dt, 0)],
                    ["held_speaker", "cross_per", "n_test", "method", "sec"])
-        # save last model for transfer reuse
+        # save final model for transfer reuse; drop the mid-fold checkpoint
         torch.save(m.state_dict(), os.path.join(RES, f"model_{method}_hold_{held}.pt"))
+        if os.path.exists(ckpt):
+            os.remove(ckpt)
 
 
 def run_transfer(D, method="supcon"):
