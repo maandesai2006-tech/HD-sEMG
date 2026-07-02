@@ -10,6 +10,7 @@ Models: CNN -> BiLSTM -> CTC phoneme decoder.
 Blank-logit bias is initialised negative to avoid the well-known all-blank CTC
 collapse on short/limited data.
 """
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,10 +19,11 @@ N_FEAT = 160          # 40 ch * 4 features
 N_PHONE = 39
 N_CLASS = N_PHONE + 1  # + CTC blank (id 0)
 BLANK = 0
+HIDDEN = int(os.environ.get("EMG_HIDDEN", "256"))  # LSTM width (raise on GPU)
 
 
 class _Backbone(nn.Module):
-    def __init__(self, in_feat=N_FEAT, hidden=256):
+    def __init__(self, in_feat=N_FEAT, hidden=HIDDEN):
         super().__init__()
         # standardize heterogeneous input features per-channel (raw/RMS/MAV/ZCR
         # live on very different scales; without this the largest-scale block

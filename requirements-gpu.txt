@@ -1,0 +1,7 @@
+# Extra deps beyond the GCP "pytorch-latest-gpu" Deep Learning VM image,
+# which already ships torch, torchaudio, numpy, and scipy (CUDA-enabled).
+remotezip>=0.12      # range-request download of the corpus
+nltk>=3.8            # CMUdict pronunciations (text -> ARPAbet)
+
+# On a BARE VM (no DL image) also install a CUDA-matched build, e.g.:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121

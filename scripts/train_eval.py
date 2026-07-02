@@ -19,7 +19,6 @@ import torchaudio.functional as AF
 sys.path.insert(0, os.path.dirname(__file__))
 from model import SubvocalCTC, SubvocalCTCV2, supcon_loss, N_CLASS, BLANK
 
-torch.set_num_threads(4)
 random.seed(0); np.random.seed(0); torch.manual_seed(0)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -27,13 +26,39 @@ PROC = os.path.join(ROOT, "data", "processed", "dataset.npz")
 RES = os.path.join(ROOT, "results")
 os.makedirs(RES, exist_ok=True)
 
-DEV = torch.device("cpu")
-BATCH = 16
+
+def _envi(name, default):
+    return int(os.environ.get(name, default))
+
+
+# ---- device: auto-detect cuda -> mps -> cpu (override with EMG_DEVICE) ----
+_dev = os.environ.get("EMG_DEVICE")
+if not _dev:
+    if torch.cuda.is_available():
+        _dev = "cuda"
+    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        _dev = "mps"
+    else:
+        _dev = "cpu"
+DEV = torch.device(_dev)
+if DEV.type == "cpu":
+    torch.set_num_threads(_envi("EMG_THREADS", 4))
+
+# ---- scale profile: EMG_SCALE=full unshrinks the CPU compromises ----
+_FULL = os.environ.get("EMG_SCALE", "").lower() == "full"
+BATCH = _envi("EMG_BATCH", 64 if _FULL else 16)
 CLIP = 5.0
-TRAIN_CAP = 500      # cap training utts/fold; enough for a real cross-speaker signal
-CKPT_EVERY = 5       # save mid-fold training state every N epochs (survives pauses)
-SUBSAMPLE = 2        # frame subsample factor: ~2x faster LSTM, easier CTC alignment
+# TRAIN_CAP 0 => use ALL available training utts for the fold
+TRAIN_CAP = _envi("EMG_TRAIN_CAP", 0 if _FULL else 500)
+SUBSAMPLE = _envi("EMG_SUBSAMPLE", 1 if _FULL else 2)
+CKPT_EVERY = _envi("EMG_CKPT_EVERY", 5)
+SANITY_EPOCHS = _envi("EMG_SANITY_EPOCHS", 100 if _FULL else 60)
+LOSO_EPOCHS = _envi("EMG_LOSO_EPOCHS", 90 if _FULL else 45)
 EVAL_BLOCKS = ("Block3-Eval1", "Block5-Eval2", "Block7-Eval3")
+
+print(f"[config] device={DEV.type} scale={'full' if _FULL else 'cpu'} "
+      f"batch={BATCH} train_cap={TRAIN_CAP or 'ALL'} subsample={SUBSAMPLE} "
+      f"sanity_ep={SANITY_EPOCHS} loso_ep={LOSO_EPOCHS}", flush=True)
 
 
 # ---------------- data ----------------
@@ -58,13 +83,14 @@ def collate(idx, X, Y):
     tlen = torch.tensor([y.shape[0] for y in ys], dtype=torch.long)
     xp = nn.utils.rnn.pad_sequence(xs, batch_first=True)         # (B,T,F)
     yp = nn.utils.rnn.pad_sequence(ys, batch_first=True)         # (B,Lmax)
-    return xp, yp, ilen, tlen
+    # inputs/targets go to the device; CTC & alignment lengths stay on CPU
+    return xp.to(DEV), yp.to(DEV), ilen, tlen
 
 
 # ---------------- metrics ----------------
 def greedy_decode(logp, ilen):
     out = []
-    arg = logp.argmax(-1)                       # (B,T)
+    arg = logp.argmax(-1).cpu()                 # (B,T)
     for b in range(arg.shape[0]):
         seq = arg[b, :ilen[b]].tolist()
         prev = None; dec = []
@@ -120,7 +146,7 @@ def train(method, tr_idx, X, Y, epochs, lam=0.5, log=print, ckpt=None):
     start_ep = 0
     if ckpt and os.path.exists(ckpt):
         try:
-            st = torch.load(ckpt)
+            st = torch.load(ckpt, map_location=DEV)
             model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
             start_ep = st["epoch"] + 1
             log(f"    resumed mid-fold from epoch {start_ep}")
@@ -138,14 +164,15 @@ def train(method, tr_idx, X, Y, epochs, lam=0.5, log=print, ckpt=None):
                 logp, z = model(xp)
                 closs = ctc(logp.transpose(0, 1), yp, ilen, tlen)
                 # phoneme-level contrastive on aligned non-blank frames
-                labs = frame_labels(logp.detach(), yp, ilen, tlen)
+                # (alignment runs on CPU for device portability)
+                labs = frame_labels(logp.detach().cpu(), yp.cpu(), ilen, tlen)
                 embs, lbls = [], []
                 for b, fl in enumerate(labs):
                     if fl is None:
                         continue
                     nz = fl > 0
                     if nz.any():
-                        embs.append(z[b, :int(ilen[b])][nz])
+                        embs.append(z[b, :int(ilen[b])][nz.to(z.device)])
                         lbls.append(fl[nz])
                 if embs:
                     E = torch.cat(embs); Lb = torch.cat(lbls).to(DEV)
@@ -221,7 +248,8 @@ def run_sanity(D):
     tr = sel[~is_eval]; te = sel[is_eval]
     print(f"[sanity] {spk} aud: train {len(tr)} test {len(te)}")
     t0 = time.time()
-    m = train("baseline", tr[:TRAIN_CAP], D["X"], D["Y"], epochs=60,
+    cap = tr[:TRAIN_CAP] if TRAIN_CAP else tr
+    m = train("baseline", cap, D["X"], D["Y"], epochs=SANITY_EPOCHS,
               log=lambda s: print("[sanity]" + s))
     tr_per, _ = evaluate(m, "baseline", list(tr[:300]), D["X"], D["Y"])
     te_per, n = evaluate(m, "baseline", list(te), D["X"], D["Y"])
@@ -231,7 +259,8 @@ def run_sanity(D):
                ["speaker", "train_per", "val_per", "n_val"])
 
 
-def run_loso(D, method, epochs=45):
+def run_loso(D, method, epochs=None):
+    epochs = epochs or LOSO_EPOCHS
     speakers = sorted(set(D["spk"][D["mode"] == "aud"]))
     name = f"loso_{method}.csv"
     done = done_folds(name, 1)
@@ -242,8 +271,9 @@ def run_loso(D, method, epochs=45):
         tr = np.where(aud & (D["spk"] != held))[0]
         te = np.where(aud & (D["spk"] == held) &
                       np.isin(D["block"], EVAL_BLOCKS))[0]
-        random.Random(1).shuffle(list(tr))
-        tr = tr[:TRAIN_CAP]
+        tr = list(tr); random.Random(1).shuffle(tr)   # actually shuffle (was a no-op)
+        if TRAIN_CAP:
+            tr = tr[:TRAIN_CAP]
         print(f"[loso:{method}] held={held} train {len(tr)} test {len(te)}")
         ckpt = os.path.join(RES, f"ckpt_{method}_hold_{held}.pt")
         t0 = time.time()
@@ -272,7 +302,7 @@ def run_transfer(D, method="supcon"):
         if not os.path.exists(ckpt):
             print(f"[transfer] no model for {held}, skip"); continue
         m = SubvocalCTCV2() if method == "supcon" else SubvocalCTC()
-        m.load_state_dict(torch.load(ckpt)); m.eval()
+        m.load_state_dict(torch.load(ckpt, map_location=DEV)); m.to(DEV); m.eval()
         te_sil = np.where((D["spk"] == held) & (D["mode"] == "sil") &
                           np.isin(D["block"], EVAL_BLOCKS))[0]
         te_aud = np.where((D["spk"] == held) & (D["mode"] == "aud") &
