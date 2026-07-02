@@ -30,7 +30,8 @@ os.makedirs(RES, exist_ok=True)
 DEV = torch.device("cpu")
 BATCH = 16
 CLIP = 5.0
-TRAIN_CAP = 500      # cap training utts/fold (CPU); enough for a cross-speaker signal
+TRAIN_CAP = 350      # cap training utts/fold: sized so a fold finishes in one
+                     # active window (container pauses when the session idles)
 SUBSAMPLE = 2        # frame subsample factor: ~2x faster LSTM, easier CTC alignment
 EVAL_BLOCKS = ("Block3-Eval1", "Block5-Eval2", "Block7-Eval3")
 
@@ -216,7 +217,7 @@ def run_sanity(D):
                ["speaker", "train_per", "val_per", "n_val"])
 
 
-def run_loso(D, method, epochs=45):
+def run_loso(D, method, epochs=35):
     speakers = sorted(set(D["spk"][D["mode"] == "aud"]))
     name = f"loso_{method}.csv"
     done = done_folds(name, 1)
