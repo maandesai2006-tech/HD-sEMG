@@ -30,7 +30,7 @@ os.makedirs(RES, exist_ok=True)
 DEV = torch.device("cpu")
 BATCH = 16
 CLIP = 5.0
-TRAIN_CAP = 1500     # cap training utts/fold for CPU tractability
+TRAIN_CAP = 900      # cap training utts/fold: CPU tractability + fast per-fold banking
 EVAL_BLOCKS = ("Block3-Eval1", "Block5-Eval2", "Block7-Eval3")
 
 
@@ -195,7 +195,7 @@ def run_sanity(D):
     tr = sel[~is_eval]; te = sel[is_eval]
     print(f"[sanity] {spk} aud: train {len(tr)} test {len(te)}")
     t0 = time.time()
-    m = train("baseline", tr[:TRAIN_CAP], D["X"], D["Y"], epochs=40,
+    m = train("baseline", tr[:TRAIN_CAP], D["X"], D["Y"], epochs=18,
               log=lambda s: print("[sanity]" + s))
     tr_per, _ = evaluate(m, "baseline", list(tr[:300]), D["X"], D["Y"])
     te_per, n = evaluate(m, "baseline", list(te), D["X"], D["Y"])
@@ -205,7 +205,7 @@ def run_sanity(D):
                ["speaker", "train_per", "val_per", "n_val"])
 
 
-def run_loso(D, method, epochs=15):
+def run_loso(D, method, epochs=12):
     speakers = sorted(set(D["spk"][D["mode"] == "aud"]))
     name = f"loso_{method}.csv"
     done = done_folds(name, 1)

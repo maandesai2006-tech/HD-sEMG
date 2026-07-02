@@ -16,7 +16,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 # 0. don't double-run experiments
-if pgrep -f "train_eval.py" >/dev/null 2>&1; then
+if pgrep -f "python3 scripts/train_eval.py" >/dev/null 2>&1; then
   echo "[resume] experiments already running — nothing to do."
   echo "[resume] tail progress: tail -f .experiments.log"
   exit 0
