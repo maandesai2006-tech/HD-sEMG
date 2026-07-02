@@ -33,8 +33,10 @@ That's why results are pushed to git every ~2.5 min: nothing important is lost.
 - **Within-speaker sanity (Spk1):** train PER **0.042**, held-out-same-speaker
   PER **0.79** — the decoder genuinely learns; overfits at this data size.
 - **Cross-speaker LOSO — in progress:**
-  - baseline fold done: **held=Spk1 → cross-speaker PER 0.906**
+  - baseline fold done: **held=Spk1 → cross-speaker PER 0.895**
   - remaining: baseline Spk2–Spk8, then all 8 SupCon folds, then transfer.
+  - **Folds now checkpoint every 5 epochs and resume mid-fold** after a pause
+    (verified), so an interrupted fold continues instead of restarting.
 - **The core question is still open:** we need the SupCon folds to compare
   against baseline. That comparison is what tests the moat hypothesis.
 
