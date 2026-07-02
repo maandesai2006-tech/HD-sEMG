@@ -1,2 +1,2 @@
 method,n_folds,mean_cross_speaker_PER,std_PER,mean_cross_speaker_acc
-baseline_CTC,3,0.8976,0.0235,0.1024
+baseline_CTC,4,0.9397,0.0758,0.0603
