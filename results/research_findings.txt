@@ -6,13 +6,16 @@ Task: ARPAbet phoneme CTC.  Metric: Phoneme Error Rate (lower=better)
 
 STATUS (partial-safe snapshot)
   sanity folds:          1
-  LOSO baseline folds:   0/8
+  LOSO baseline folds:   1/8
   LOSO supcon folds:     0/8
   transfer folds:        0
 
 1) WITHIN-SPEAKER SANITY (does phoneme CTC learn at all on this modality)
    Spk1: train PER 4.2%  held-out-same-speaker PER 79.2% (n=150)
    -> CONVERGES — train PER low, so the signal carries phoneme info.
+
+2) CROSS-SPEAKER ZERO-SHOT (leave-one-speaker-out, audible)
+   Baseline CTC : mean cross-speaker PER 90.6% +/- 0.0% (n=1 folds)
 
 HONEST BOUNDARY
   Absolute PER is not the product number; CPU-only caps utts/epochs per
