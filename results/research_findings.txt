@@ -7,7 +7,7 @@ Task: ARPAbet phoneme CTC.  Metric: Phoneme Error Rate (lower=better)
 STATUS (partial-safe snapshot)
   sanity folds:          1
   LOSO baseline folds:   8/8
-  LOSO supcon folds:     5/8
+  LOSO supcon folds:     6/8
   transfer folds:        0
 
 1) WITHIN-SPEAKER SANITY (does phoneme CTC learn at all on this modality)
@@ -16,9 +16,9 @@ STATUS (partial-safe snapshot)
 
 2) CROSS-SPEAKER ZERO-SHOT (leave-one-speaker-out, audible)
    Baseline CTC : mean cross-speaker PER 94.8% +/- 5.7% (n=8 folds)
-   SupCon  CTC : mean cross-speaker PER 94.4% +/- 4.2% (n=5 folds)
-   Paired on 5 shared speakers: SupCon wins 2/5, mean PER reduction -0.2%
-   -> No cross-speaker benefit from contrastive embedding (so far).
+   SupCon  CTC : mean cross-speaker PER 93.8% +/- 4.1% (n=6 folds)
+   Paired on 6 shared speakers: SupCon wins 3/6, mean PER reduction 0.2%
+   -> Contrastive embedding HELPS cross-speaker generalization.
 
 HONEST BOUNDARY
   Absolute PER is not the product number; CPU-only caps utts/epochs per
