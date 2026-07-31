@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* Design tokens — light mode. Viz roles follow the validated reference
+   palette: diverging blue↔red with a neutral gray midpoint for price-vs-market,
+   sequential blue for demand magnitude, reserved status colors for advice. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+
+  --series-1: #2a78d6;      /* sparklines, demand bar */
+  --div-low: #2a78d6;       /* cheaper than market */
+  --div-mid: #f0efec;       /* at market */
+  --div-high: #e34948;      /* pricier than market */
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --delta-good-text: #006300;
+
+  --accent: #2a78d6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+
+    --series-1: #3987e5;
+    --div-low: #3987e5;
+    --div-mid: #383835;
+    --div-high: #e66767;
+
+    --delta-good-text: #0ca30c;
+    --accent: #3987e5;
+  }
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Diverging price-vs-market bins (background tints; text stays primary ink). */
+.bin--2 { background: color-mix(in oklab, var(--div-low) 26%, var(--surface)); }
+.bin--1 { background: color-mix(in oklab, var(--div-low) 13%, var(--surface)); }
+.bin-0  { background: var(--div-mid); }
+.bin-1  { background: color-mix(in oklab, var(--div-high) 13%, var(--surface)); }
+.bin-2  { background: color-mix(in oklab, var(--div-high) 26%, var(--surface)); }
+.bin-na { background: var(--surface); color: var(--text-muted); }
