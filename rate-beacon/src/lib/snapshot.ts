@@ -1,15 +1,7 @@
 import { db } from "./db";
-import { getOffers } from "./amadeus";
+import { getRates } from "./xotelo";
 import { addDaysISO, dateRange, todayISO } from "./dates";
 import type { Hotel, Settings } from "./types";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
 
 export interface SnapshotResult {
   dates: number;
@@ -20,7 +12,8 @@ export interface SnapshotResult {
 
 // Fetch one-night rates for every tracked hotel over the horizon and store
 // today's snapshot. Called by the daily cron and the manual refresh button.
-// `maxDates` lets callers stay inside serverless time limits.
+// Xotelo is one request per hotel per night, so run a small worker pool and
+// let `maxDates` cap the horizon to stay inside serverless time limits.
 export async function runSnapshot(maxDates?: number): Promise<SnapshotResult> {
   const supa = db();
 
@@ -34,45 +27,59 @@ export async function runSnapshot(maxDates?: number): Promise<SnapshotResult> {
 
   const horizon = Math.min(settings.horizon_days, maxDates ?? settings.horizon_days);
   const dates = dateRange(todayISO(), horizon);
-  const hotelIds = hotels.map((h) => h.hotel_id);
   const errors: string[] = [];
   let rowsWritten = 0;
 
-  for (const checkIn of dates) {
-    const checkOut = addDaysISO(checkIn, 1);
-    for (const ids of chunk(hotelIds, 20)) {
+  const jobs = dates.flatMap((checkIn) =>
+    hotels.map((h) => ({ checkIn, hotel: h }))
+  );
+
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  let aborted = false;
+
+  async function worker() {
+    while (!aborted) {
+      const i = cursor++;
+      if (i >= jobs.length) return;
+      const { checkIn, hotel } = jobs[i];
       try {
-        const offers = await getOffers(
-          ids,
+        const r = await getRates(
+          hotel.hotel_id,
           checkIn,
-          checkOut,
-          settings.adults,
-          settings.currency
+          addDaysISO(checkIn, 1),
+          settings!.currency,
+          settings!.adults
         );
-        const rows = offers.map((o) => ({
-          hotel_id: o.hotelId,
-          check_in: checkIn,
-          captured_on: todayISO(),
-          price: o.price,
-          currency: o.currency ?? settings.currency,
-          available: o.available,
-          room_desc: o.roomDesc,
-        }));
-        const { error } = await supa
-          .from("rate_snapshots")
-          .upsert(rows, { onConflict: "hotel_id,check_in,captured_on" });
-        if (error) errors.push(`${checkIn}: ${error.message}`);
-        else rowsWritten += rows.length;
+        const { error } = await supa.from("rate_snapshots").upsert(
+          {
+            hotel_id: hotel.hotel_id,
+            check_in: checkIn,
+            captured_on: todayISO(),
+            price: r.price,
+            currency: r.currency ?? settings!.currency,
+            available: r.available,
+            room_desc: r.otaName
+              ? `${r.otaName} · cheapest of ${r.offerCount} OTA offer${r.offerCount === 1 ? "" : "s"}`
+              : null,
+          },
+          { onConflict: "hotel_id,check_in,captured_on" }
+        );
+        if (error) errors.push(`${hotel.name} ${checkIn}: ${error.message}`);
+        else rowsWritten++;
       } catch (e) {
-        errors.push(`${checkIn}: ${(e as Error).message}`);
-        if (errors.length >= 5) {
-          // Persistent failure (bad keys, quota exhausted) — stop burning quota.
-          return { dates: dates.length, hotels: hotelIds.length, rowsWritten, errors };
-        }
+        errors.push(`${hotel.name} ${checkIn}: ${(e as Error).message}`);
+        // Persistent failure (network, upstream outage) — stop hammering.
+        if (errors.length >= 10) aborted = true;
       }
-      // Stay well under the test environment's rate limit.
-      await sleep(150);
     }
   }
-  return { dates: dates.length, hotels: hotelIds.length, rowsWritten, errors };
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  return {
+    dates: dates.length,
+    hotels: hotels.length,
+    rowsWritten,
+    errors: errors.slice(0, 10),
+  };
 }

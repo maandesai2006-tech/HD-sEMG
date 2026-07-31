@@ -5,37 +5,47 @@ Lighthouse/OTA-Insight-style tool. Track what competitor hotels charge night by
 night, spot high-demand dates, see where your own rate sits against the market,
 and watch how prices move over time.
 
-Data comes from the **[Amadeus Self-Service API](https://developers.amadeus.com)**
-(free tier). Hosting fits entirely in **Vercel + Supabase free tiers**.
+Rate data comes from the **free, keyless [Xotelo API](https://xotelo.com)**,
+which serves TripAdvisor's public meta-search prices across OTAs (Booking.com,
+Expedia, Agoda, …). Hosting fits entirely in **Vercel + Supabase free tiers**.
+No paid services, no API keys for the data source.
+
+> Originally built on the Amadeus Self-Service API, which was decommissioned
+> on July 17, 2026 — Xotelo replaced it and is a better fit anyway: any hotel
+> on TripAdvisor works, identified simply by its TripAdvisor page URL.
 
 ## What it does
 
-- **Competitor rate grid** — pick your city, your hotel, and 5–10 competitors;
-  see everyone's nightly rate for the next 7–120 days in a color-coded grid
-  (blue = cheaper than that night's market median, red = pricier).
-- **Your rate vs the market** — mark your own hotel (if it's bookable via
-  Amadeus) or type your rates directly into the grid; every night is banded
+- **Competitor rate grid** — paste your hotel's TripAdvisor link, pick 5–10
+  competitors (from the same location or by pasting their links); see
+  everyone's cheapest-OTA nightly rate for the next 7–120 days in a
+  color-coded grid (blue = cheaper than that night's market median,
+  red = pricier).
+- **Your rate vs the market** — mark your own hotel, or type your rates
+  directly into the grid if you're not on TripAdvisor; every night is banded
   well-below → well-above market.
 - **Advice column** — ▲ *Raise* (at/below market on a high-demand night),
   ▲ *Low?* (far below market), ▼ *High* (well above a soft market).
 - **Demand signal (0–100)** — built from how much of the comp set is sold out
   plus how fast the market median has been climbing for that date.
 - **Rate history** — a daily snapshot job stores every rate; click any date to
-  see per-hotel price-evolution sparklines.
+  see per-hotel price-evolution sparklines, and hover any cell to see which
+  OTA had the cheapest offer.
 
-## Setup (about 20 minutes, all free)
+## Try the data source first (10 seconds)
 
-### 1. Amadeus API keys (~5 min)
+From any machine with Node 18+:
 
-1. Create a free account at [developers.amadeus.com](https://developers.amadeus.com).
-2. *My Self-Service Workspace → Create New App* — copy the **API Key** and
-   **API Secret**.
-3. Keys start in the **test** environment: free, but hotel data is limited and
-   partly cached — fine for trying the app. For real live rates, request
-   **production keys** in the same dashboard (still free up to a monthly quota;
-   card details required but the Hotel Search free tier is generous).
+```bash
+node scripts/test-xotelo.mjs "https://www.tripadvisor.com/Hotel_Review-g…-d…-Reviews-….html"
+```
 
-### 2. Supabase database (~5 min)
+Paste your own hotel's TripAdvisor URL — it prints the live OTA offers for a
+night two weeks out.
+
+## Setup (~15 minutes, all free)
+
+### 1. Supabase database (~5 min)
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. In the project's **SQL Editor**, paste and run
@@ -47,49 +57,50 @@ Data comes from the **[Amadeus Self-Service API](https://developers.amadeus.com)
 > (`https://fcyghazlfnytejvdxkfk.supabase.co`, us-east-1) exists with the
 > schema applied — just grab the service_role key from its dashboard.
 
-### 3. Deploy to Vercel (~10 min)
+### 2. Deploy to Vercel (~10 min)
 
-1. Push this folder to a GitHub repo (or use it where it lives) and *Import*
-   it on [vercel.com](https://vercel.com). If it lives in a subfolder of a
-   larger repo, set **Root Directory** to `rate-beacon`.
+1. Import the repo on [vercel.com](https://vercel.com). If it lives in a
+   subfolder of a larger repo, set **Root Directory** to `rate-beacon`.
 2. Add the environment variables from [`.env.example`](.env.example):
-   `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET`, `AMADEUS_ENV`,
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD` (the dashboard
    login), and `CRON_SECRET` (any long random string — protects the daily job).
 3. Deploy. `vercel.json` registers a **daily cron at 06:00 UTC** that snapshots
    all rates; Vercel authenticates it automatically with `CRON_SECRET`.
 
-Open the site → enter the password → **Set up your market** → hit
-**Refresh rates** once. From then on the cron keeps history building daily.
+Open the site → enter the password → **Set up your market** (paste your
+hotel's TripAdvisor link, add competitors) → hit **Refresh rates** once. From
+then on the daily job keeps the history building automatically.
 
 ### Local development
 
 ```bash
-cp .env.example .env.local   # fill in your keys
+cp .env.example .env.local   # fill in your Supabase values
 npm install
 npm run dev                  # http://localhost:3000
 ```
 
 ## Notes & limits
 
-- **API quota math**: one snapshot = `horizon_days × ceil(hotels / 20)` Amadeus
-  calls (60 days × ≤20 hotels ≈ 60 calls/day ≈ 1.8k/month) — comfortably inside
-  the free tier. Keep the horizon modest if you track many hotels.
-- **Test vs production**: `AMADEUS_ENV=test` returns sandbox data (some cities
-  sparse, prices not live). Switch to `production` for real rates.
-- **Hotel coverage**: Amadeus exposes GDS-connected hotels. Small independents
-  are sometimes missing — if yours is, leave "mine" unticked and type your
-  rates straight into the *you* column; comparisons work the same.
+- **Request volume**: one Xotelo lookup per hotel per night — a daily snapshot
+  of 6 hotels × 45 days ≈ 270 requests, spread over a couple of minutes with 4
+  concurrent workers and retry/backoff. Keep the horizon modest; be polite to
+  a free service (there's a [donate page](https://xotelo.com/donate.html)).
+- **Hotel coverage**: any property with a TripAdvisor page that shows prices.
+  If your own hotel isn't listed, leave "mine" unticked and type your rates
+  straight into the *you* column — comparisons work the same.
+- **Prices are the cheapest OTA offer** for a 1-night, 2-adult stay — the same
+  "market rate" a guest comparison-shopping would see. Hover a cell to see
+  which OTA it came from.
 - **Demand & advice are heuristics** built only from observable signals (comp
-  sold-outs, median momentum). They're a starting point for a pricing decision,
-  not a revenue-management system.
-- The serverless snapshot route caps at 60 s; with very large horizons call
-  `POST /api/refresh?maxDates=30` twice rather than raising the horizon.
+  sold-outs, median momentum). They're a starting point for a pricing
+  decision, not a revenue-management system.
+- The snapshot route runs up to 300 s per invocation; for very large
+  horizon × hotel combinations call `POST /api/refresh?maxDates=30` in chunks.
+- Xotelo is an unofficial free service — if it ever disappears, the data layer
+  is isolated in [`src/lib/xotelo.ts`](src/lib/xotelo.ts) and can be swapped
+  for another provider without touching the dashboard, database, or insights.
 
 ## Stack
 
 Next.js 15 (App Router, TypeScript) · Tailwind CSS 4 · Supabase (Postgres) ·
-Amadeus Self-Service APIs (`/v1/reference-data/locations`,
-`/v1/…/hotels/by-city`, `/v3/shopping/hotel-offers`) · Vercel Cron.
-
-No paid services, no scraping, no tracking.
+Xotelo API (`/api/rates`, `/api/list`) · Vercel Cron.

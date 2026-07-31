@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSnapshot } from "@/lib/snapshot";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const maxDates = Number(req.nextUrl.searchParams.get("maxDates")) || undefined;

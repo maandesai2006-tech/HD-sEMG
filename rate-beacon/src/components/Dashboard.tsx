@@ -116,8 +116,8 @@ export default function Dashboard() {
             {error}
           </p>
           <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            If this is a fresh deploy, check that the Supabase and Amadeus
-            environment variables are set, and that the database migration ran.
+            If this is a fresh deploy, check that the Supabase environment
+            variables are set and that the database migration ran.
           </p>
         </div>
       </Shell>
@@ -227,8 +227,8 @@ export default function Dashboard() {
           style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         >
           No rates in the database yet — hit <b>Refresh rates</b> to fetch live
-          prices from Amadeus for the next {settings.horizon_days} days. After
-          the first fetch, a daily job keeps this up to date automatically.
+          prices for the next {settings.horizon_days} days. After the first
+          fetch, a daily job keeps this up to date automatically.
         </div>
       )}
 
