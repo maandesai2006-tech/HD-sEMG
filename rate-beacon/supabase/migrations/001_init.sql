@@ -60,3 +60,9 @@ alter table settings enable row level security;
 alter table hotels enable row level security;
 alter table rate_snapshots enable row level security;
 alter table my_rates enable row level security;
+
+-- Only the server (service_role) talks to this database; make sure the
+-- auto-generated REST API exposes nothing to anon/authenticated clients.
+alter view latest_rates set (security_invoker = on);
+revoke all on all tables in schema public from anon, authenticated;
+alter default privileges in schema public revoke all on tables from anon, authenticated;

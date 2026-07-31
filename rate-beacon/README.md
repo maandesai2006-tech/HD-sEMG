@@ -43,6 +43,10 @@ Data comes from the **[Amadeus Self-Service API](https://developers.amadeus.com)
 3. From *Project Settings → API* copy the **Project URL** and the
    **service_role key** (server-only — never expose it in a browser).
 
+> Already done for this repo's owner: the project **rate-beacon**
+> (`https://fcyghazlfnytejvdxkfk.supabase.co`, us-east-1) exists with the
+> schema applied — just grab the service_role key from its dashboard.
+
 ### 3. Deploy to Vercel (~10 min)
 
 1. Push this folder to a GitHub repo (or use it where it lives) and *Import*
